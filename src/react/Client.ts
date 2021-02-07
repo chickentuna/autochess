@@ -5,6 +5,7 @@ import { Drawer } from './xchess/Drawer'
 import { fitAspectRatio, randint, shuffle } from './utils'
 import palettes from 'nice-color-palettes'
 import * as io from './io'
+import { GlowFilter } from 'pixi-filters'
 
 function hexToRGB (col) {
   return parseInt(col.slice(1), 16)
@@ -24,12 +25,11 @@ palette = [
 const BOARD_ROWS = 2
 const BOARD_COLUMNS = 8
 
-export class Piece {
+interface Piece {
   type: PieceType
   sprite?: PIXI.Sprite
-  constructor (type: PieceType) {
-    this.type = type
-  }
+  hover?: boolean
+  selected?: boolean
 }
 
 export class Board {
@@ -58,6 +58,10 @@ export class Client {
   goldLabel: PIXI.Text
   tierLabel: PIXI.Text
   healthLabel: PIXI.Text
+  piecesInShop: Piece[]
+  piecesOnBoard: Piece[]
+  glowFilter: GlowFilter
+  selectedPiece: Piece
 
   width: number
   height: number
@@ -72,6 +76,21 @@ export class Client {
     this.pool = []
 
     this.drawer = new Drawer(renderer)
+
+    this.glowFilter = new GlowFilter({
+      distance: 10,
+      outerStrength: 4,
+      innerStrength: 0,
+      color: 0xFF00000,
+      quality: 0.1,
+      knockout: false
+    })
+
+    stage.interactive = true
+    stage.on('mousedown', ev => {
+      this.selectedPiece = null
+      this.refreshPieces()
+    })
 
     this.initShopRoom()
 
@@ -91,6 +110,7 @@ export class Client {
   }
 
   redrawPieces () {
+    this.piecesOnBoard = []
     this.boardContainer.removeChildren()
     for (let y = 0; y < BOARD_ROWS; ++y) {
       for (let x = 0; x < BOARD_COLUMNS; ++x) {
@@ -98,9 +118,12 @@ export class Client {
         const piece = this.board.pieces[idx]
         if (piece != null) {
           const sprite = this.drawer.drawPiece(piece.type)
-          piece.sprite = sprite
           this.boardContainer.addChild(sprite)
           sprite.position.set(this.drawer.cellSize * x, this.drawer.cellSize * y)
+          console.log(sprite)
+          const debug = 'debug'
+          window[debug] = sprite
+          this.piecesOnBoard.push(this.initBoardPiece(piece, sprite))
         }
       }
     }
@@ -117,10 +140,13 @@ export class Client {
     const allPieces = new PIXI.Container()
     let i = 0
 
-    for (const p of this.pool) {
-      const piece = this.drawer.drawPiece(p)
-      allPieces.addChild(piece)
-      piece.x = i * this.drawer.cellSize
+    this.piecesInShop = []
+    for (const pieceType of this.pool) {
+      const sprite = this.drawer.drawPiece(pieceType)
+      allPieces.addChild(sprite)
+      sprite.x = i * this.drawer.cellSize
+      const piece = this.initShopPiece(pieceType, sprite)
+      this.piecesInShop.push(piece)
       i++
     }
     allPieces.position.set(
@@ -129,6 +155,70 @@ export class Client {
     )
 
     this.shopContainer.addChild(allPieces)
+  }
+
+  initShopPiece (pieceType: PieceType, sprite: PIXI.Sprite):Piece {
+    const piece:Piece = { type: pieceType, sprite }
+
+    piece.sprite.interactive = true
+    piece.sprite.cursor = 'pointer'
+    piece.sprite.on('mouseover', () => {
+      piece.hover = true
+      this.refreshPiece(piece)
+    })
+    piece.sprite.on('mouseout', () => {
+      piece.hover = false
+      this.refreshPiece(piece)
+    })
+    piece.sprite.on('mousedown', (ev) => {
+      if (this.selectedPiece == null) {
+        this.selectedPiece = piece
+      } else if (this.selectedPiece === piece) {
+        this.selectedPiece = null
+      }
+      this.refreshPiece(piece)
+      ev.stopPropagation()
+    })
+    return piece
+  }
+
+  // TODO: factorize
+  initBoardPiece (serverPiece: Piece, sprite: PIXI.Sprite):Piece {
+    const piece = { ...serverPiece, sprite }
+    piece.sprite.interactive = true
+    piece.sprite.cursor = 'pointer'
+    piece.sprite.on('mouseover', () => {
+      piece.hover = true
+      this.refreshPiece(piece)
+    })
+    piece.sprite.on('mouseout', () => {
+      piece.hover = false
+      this.refreshPiece(piece)
+    })
+    piece.sprite.on('mousedown', (ev) => {
+      if (this.selectedPiece == null) {
+        this.selectedPiece = piece
+      } else if (this.selectedPiece === piece) {
+        this.selectedPiece = null
+      }
+      this.refreshPiece(piece)
+      ev.stopPropagation()
+    })
+    return piece
+  }
+
+  refreshPieces () {
+    for (const piece of [...this.piecesOnBoard, ...this.piecesInShop]) {
+      this.refreshPiece(piece)
+    }
+  }
+
+  refreshPiece (piece) {
+    const selected = this.selectedPiece === piece
+    const selectable = this.selectedPiece == null
+    piece.sprite.filters = piece.hover && selectable ? [this.glowFilter] : []
+    piece.sprite.alpha = selected ? 0.5 : 1
+    piece.sprite.cursor = this.selectedPiece == null || this.selectedPiece === piece ? 'pointer' : 'default'
   }
 
   initBattleRoom () {
@@ -211,6 +301,7 @@ export class Client {
     shopRoom.addChild(board)
     shopRoom.addChild(pool)
     shopRoom.addChild(this.shopContainer)
+    shopRoom.addChild(this.boardContainer)
     shopRoom.addChild(goldLabel)
     shopRoom.addChild(healthLabel)
     shopRoom.addChild(tierLabel)

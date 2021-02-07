@@ -29,6 +29,7 @@ export class Board {
     for (let i = 0; i < BOARD_ROWS * BOARD_COLUMNS; ++i) {
       this.pieces.push(null)
     }
+    this.pieces[0] = new Piece(PieceType.KING)
   }
 }
 
@@ -64,7 +65,7 @@ export class Server {
     this.players.push(debugPlayer)
 
     for (let i = 0; i < 16; ++i) {
-      this.pool.push(PieceType.PAWN)
+      this.pool.push(randint(PieceType.PAWN, PieceType.KNIGHT))
     }
 
     this.refreshPools()

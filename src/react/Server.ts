@@ -69,6 +69,9 @@ export class Server {
     }
 
     this.refreshPools()
+    io.on('ready', () => {
+      this.phase = Phase.BATTLE
+    })
   }
 
   start () {

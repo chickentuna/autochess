@@ -1,8 +1,8 @@
 import { Phase } from './Phase'
 import { PieceType } from './PieceType'
 import * as PIXI from 'pixi.js'
-import { Drawer } from './xchess/Drawer'
-import { fitAspectRatio, randint, shuffle } from './utils'
+import { Drawer, WHITE } from './xchess/Drawer'
+import { fitAspectRatio, inBounds, randint, shuffle, toLocal } from './utils'
 import palettes from 'nice-color-palettes'
 import * as io from './io'
 import { GlowFilter } from 'pixi-filters'
@@ -30,6 +30,7 @@ interface Piece {
   sprite?: PIXI.Sprite
   hover?: boolean
   selected?: boolean
+  place?: 'board' | 'shop'
 }
 
 export class Board {
@@ -42,10 +43,16 @@ export class Board {
   }
 }
 
+type BoardCoord = {
+  boardCoord?: PIXI.IPoint,
+  boardIdx?: number
+}
+
 export class Client {
   pool: PieceType[]
   phase: Phase
   gold: number
+  baseGold: number
   health: number
   tier: number
   board: Board
@@ -55,13 +62,14 @@ export class Client {
   battleRoom: PIXI.Container
   shopContainer: PIXI.Container
   boardContainer: PIXI.Container
+  boardGraphics: PIXI.Sprite
   goldLabel: PIXI.Text
   tierLabel: PIXI.Text
   healthLabel: PIXI.Text
   piecesInShop: Piece[]
-  piecesOnBoard: Piece[]
   glowFilter: GlowFilter
   selectedPiece: Piece
+  hoveringOver: BoardCoord
 
   width: number
   height: number
@@ -74,6 +82,7 @@ export class Client {
     this.height = view.height
     this.phase = Phase.SHOP
     this.pool = []
+    this.hoveringOver = {}
 
     this.drawer = new Drawer(renderer)
 
@@ -86,18 +95,12 @@ export class Client {
       knockout: false
     })
 
-    stage.interactive = true
-    stage.on('mousedown', ev => {
-      this.selectedPiece = null
-      this.refreshPieces()
-    })
-
     this.initShopRoom()
 
     io.on('shop_phase', (data) => {
-      console.log({ data })
       this.phase = Phase.SHOP
       this.gold = data.gold
+      this.baseGold = data.gold
       this.health = data.health
       this.tier = data.tier
       this.pool = data.pool
@@ -109,9 +112,9 @@ export class Client {
     })
   }
 
+  // TODO: rename to initPieces
   redrawPieces () {
-    this.piecesOnBoard = []
-    this.boardContainer.removeChildren()
+    // this.boardContainer.removeChildren()
     for (let y = 0; y < BOARD_ROWS; ++y) {
       for (let x = 0; x < BOARD_COLUMNS; ++x) {
         const idx = y * BOARD_ROWS + x
@@ -120,17 +123,15 @@ export class Client {
           const sprite = this.drawer.drawPiece(piece.type)
           this.boardContainer.addChild(sprite)
           sprite.position.set(this.drawer.cellSize * x, this.drawer.cellSize * y)
-          console.log(sprite)
-          const debug = 'debug'
-          window[debug] = sprite
-          this.piecesOnBoard.push(this.initBoardPiece(piece, sprite))
+          const newPiece = this.initBoardPiece(piece, sprite)
+          this.board.pieces[idx] = newPiece
         }
       }
     }
   }
 
   updateHUD () {
-    this.goldLabel.text = `Gold: ${this.gold.toString()}/${this.gold.toString()}`
+    this.goldLabel.text = `Gold: ${this.gold.toString()}/${this.baseGold.toString()}`
     this.tierLabel.text = `Tier: ${this.tier.toString()}`
     this.healthLabel.text = `Health: ${this.health.toString()}`
   }
@@ -157,34 +158,47 @@ export class Client {
     this.shopContainer.addChild(allPieces)
   }
 
+  isBuyable (piece: Piece) {
+    if (this.gold < 3) {
+      return false
+    }
+    if (this.board.pieces.every(v => v != null)) {
+      return false
+    }
+    return true
+  }
+
   initShopPiece (pieceType: PieceType, sprite: PIXI.Sprite):Piece {
-    const piece:Piece = { type: pieceType, sprite }
+    const piece:Piece = { type: pieceType, sprite, place: 'shop' }
 
     piece.sprite.interactive = true
-    piece.sprite.cursor = 'pointer'
     piece.sprite.on('mouseover', () => {
-      piece.hover = true
-      this.refreshPiece(piece)
+      if (this.isBuyable(piece)) {
+        piece.hover = true
+        this.refreshPiece(piece)
+      }
     })
     piece.sprite.on('mouseout', () => {
       piece.hover = false
       this.refreshPiece(piece)
     })
     piece.sprite.on('mousedown', (ev) => {
-      if (this.selectedPiece == null) {
-        this.selectedPiece = piece
-      } else if (this.selectedPiece === piece) {
-        this.selectedPiece = null
+      if (this.isBuyable(piece)) {
+        if (this.selectedPiece == null) {
+          this.selectedPiece = piece
+        } else if (this.selectedPiece === piece) {
+          this.selectedPiece = null
+        }
+        this.refreshPiece(piece)
+        ev.stopPropagation()
       }
-      this.refreshPiece(piece)
-      ev.stopPropagation()
     })
     return piece
   }
 
   // TODO: factorize
   initBoardPiece (serverPiece: Piece, sprite: PIXI.Sprite):Piece {
-    const piece = { ...serverPiece, sprite }
+    const piece:Piece = { ...serverPiece, sprite, place: 'board' }
     piece.sprite.interactive = true
     piece.sprite.cursor = 'pointer'
     piece.sprite.on('mouseover', () => {
@@ -208,17 +222,21 @@ export class Client {
   }
 
   refreshPieces () {
-    for (const piece of [...this.piecesOnBoard, ...this.piecesInShop]) {
-      this.refreshPiece(piece)
+    for (const piece of [...this.board.pieces, ...this.piecesInShop]) {
+      if (piece != null) {
+        this.refreshPiece(piece)
+      }
     }
   }
 
   refreshPiece (piece) {
     const selected = this.selectedPiece === piece
-    const selectable = this.selectedPiece == null
+    const selectable = piece.place === 'shop'
+      ? this.selectedPiece == null && this.isBuyable(piece)
+      : this.selectedPiece == null
     piece.sprite.filters = piece.hover && selectable ? [this.glowFilter] : []
     piece.sprite.alpha = selected ? 0.5 : 1
-    piece.sprite.cursor = this.selectedPiece == null || this.selectedPiece === piece ? 'pointer' : 'default'
+    piece.sprite.cursor = (selectable || selected) ? 'pointer' : 'default'
   }
 
   initBattleRoom () {
@@ -243,6 +261,7 @@ export class Client {
     board.y = 3 * this.height / 4 - board.height / 2
     board.x = this.width / 2 - board.width / 2
     board.scale.set(fitAspectRatio(board.width, board.height, 3 * this.width / 4, this.height))
+    this.boardGraphics = board
 
     this.boardContainer = new PIXI.Container()
     this.boardContainer.position.copyFrom(board.position)
@@ -296,6 +315,79 @@ export class Client {
     tierLabel.anchor.set(0, 0.5)
     this.tierLabel = tierLabel
 
+    const ghost = this.drawer.drawPiece(PieceType.PAWN)
+    ghost.alpha = 0.5
+    ghost.visible = false
+    this.boardContainer.addChild(ghost)
+
+    const readyButton = new PIXI.Graphics()
+    readyButton.beginFill(palette[3], 1)
+    readyButton.lineStyle(frameWidth / 2, palette[0], 1)
+    readyButton.drawRoundedRect(0, 0, this.width / 8 - frameWidth, this.height / 16, frameWidth / 2)
+    readyButton.position.set(7 * this.width / 8, this.height / 2)
+    readyButton.endFill()
+
+    const readyLabel = new PIXI.Text('Start', {
+      fill: palette[0],
+      fontSize: 14,
+      fontWeight: 'bold'
+    })
+    readyLabel.anchor.set(0.5)
+    readyLabel.position.set(
+      readyButton.x + readyButton.width / 2 - frameWidth / 4,
+      readyButton.y + readyButton.height / 2 - frameWidth / 4
+    )
+
+    readyButton.interactive = true
+    readyButton.cursor = 'pointer'
+    readyButton.on('mousedown', ev => {
+      io.emit('ready', this.board.pieces)
+    })
+
+    shopRoom.on('mousedown', ev => {
+      const { boardCoord, boardIdx } = this.hoveringOver
+      if (boardCoord != null && this.selectedPiece != null && (this.selectedPiece.place === 'board' || this.isBuyable(this.selectedPiece))) {
+        let pieceSprite
+        if (this.selectedPiece.place === 'shop') {
+          pieceSprite = this.drawer.drawPiece(this.selectedPiece.type)
+          this.boardContainer.addChild(pieceSprite)
+          this.board.pieces[boardIdx] = this.initBoardPiece({ type: this.selectedPiece.type }, pieceSprite)
+          this.gold -= 3
+          const shopIdx = this.piecesInShop.findIndex(v => v === this.selectedPiece)
+          this.selectedPiece.sprite.parent.removeChild(this.selectedPiece.sprite)
+          this.piecesInShop.splice(shopIdx, 1)
+        } else {
+          const oldBoardIdx = this.board.pieces.findIndex(v => v === this.selectedPiece)
+          this.board.pieces[oldBoardIdx] = null
+          this.board.pieces[boardIdx] = this.selectedPiece
+          pieceSprite = this.selectedPiece.sprite
+        }
+        pieceSprite.position.set(boardCoord.x * this.drawer.cellSize, boardCoord.y * this.drawer.cellSize)
+
+        this.selectedPiece = null
+        this.hoveringOver = {}
+        this.refreshPieces()
+        this.updateHUD()
+      } else {
+        this.selectedPiece = null
+        this.refreshPieces()
+      }
+    })
+    shopRoom.on('mousemove', ({ data }) => {
+      const { boardIdx, boardCoord } = this.getFreeCellBelowGlobal(data.global)
+      this.hoveringOver = {}
+      ghost.visible = false
+      shopRoom.cursor = 'default'
+      if (boardIdx != null) {
+        this.hoveringOver = { boardCoord, boardIdx }
+        ghost.texture = this.drawer.textures.PIECES[WHITE][this.selectedPiece.type]
+        ghost.visible = true
+        ghost.position.set(boardCoord.x * this.drawer.cellSize, boardCoord.y * this.drawer.cellSize)
+        shopRoom.cursor = 'pointer'
+      }
+    })
+    shopRoom.interactive = true
+
     shopRoom.addChild(background)
     shopRoom.addChild(boardFrame)
     shopRoom.addChild(board)
@@ -305,8 +397,34 @@ export class Client {
     shopRoom.addChild(goldLabel)
     shopRoom.addChild(healthLabel)
     shopRoom.addChild(tierLabel)
+    shopRoom.addChild(readyButton)
+    shopRoom.addChild(readyLabel)
 
     this.stage.addChild(shopRoom)
     this.shopRoom = shopRoom
+  }
+
+  getFreeCellBelowGlobal (point: PIXI.IPoint): BoardCoord {
+    const boardPos = toLocal(this.boardGraphics, point)
+    const boardCoord = this.toBoardCoord(boardPos)
+    const boardIdx = this.toBoardIdx(boardCoord)
+    if (inBounds(boardCoord, BOARD_COLUMNS, BOARD_ROWS) && this.selectedPiece != null && this.board.pieces[boardIdx] == null) {
+      return {
+        boardIdx,
+        boardCoord
+      }
+    }
+    return {}
+  }
+
+  toBoardCoord (point: PIXI.IPoint): PIXI.IPoint {
+    return new PIXI.Point(
+      Math.floor(point.x / this.drawer.cellSize),
+      Math.floor(point.y / this.drawer.cellSize)
+    )
+  }
+
+  toBoardIdx (boardCoord: PIXI.IPoint) {
+    return boardCoord.y * BOARD_COLUMNS + boardCoord.x
   }
 }

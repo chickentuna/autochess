@@ -15,8 +15,8 @@ const TEXTURE_POSITION = {
   [PieceType.KING]: 0
 }
 
-const WHITE = 0
-const BLACK = 1
+export const WHITE = 0
+export const BLACK = 1
 
 type Colour = typeof BLACK | typeof WHITE
 

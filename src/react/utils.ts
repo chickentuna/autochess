@@ -1,3 +1,5 @@
+import * as PIXI from 'pixi.js'
+
 export interface Point {
   x:number,
   y:number
@@ -26,4 +28,22 @@ export function shuffle (array) {
     const j = Math.floor(Math.random() * (i + 1));
     [array[i], array[j]] = [array[j], array[i]]
   }
+}
+
+export function toLocal (object: PIXI.DisplayObject, point: PIXI.IPoint): PIXI.IPoint {
+  const pos = { x: -point.x, y: -point.y } as any
+  const localPos = object.toGlobal(pos)
+  return new PIXI.Point(-localPos.x, -localPos.y)
+}
+
+interface IPoint {
+  x: number,
+  y: number
+}
+
+export function inBounds (point:IPoint, x1:number, y1:number, x2?:number, y2?:number): boolean {
+  if (x2 == null || y2 == null) {
+    return point.x >= 0 && point.y >= 0 && point.x < x1 && point.y < y1
+  }
+  return point.x >= x1 && point.y >= y1 && point.x < x2 && point.y < y2
 }

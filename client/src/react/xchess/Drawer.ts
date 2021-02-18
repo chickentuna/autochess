@@ -1,5 +1,4 @@
 import * as PIXI from 'pixi.js'
-import { Piece } from '../Server'
 import { PieceType } from '../PieceType'
 import sheet from './sheet.png'
 

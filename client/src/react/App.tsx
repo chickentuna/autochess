@@ -1,10 +1,7 @@
 import React, { Component } from 'react'
 import './App.scss'
 import * as PIXI from 'pixi.js'
-import { Server } from './Server'
 import { Client } from './Client'
-
-const DEFAULT_MS_PER_TICK = 100
 
 interface State {
 }
@@ -19,7 +16,6 @@ class App extends Component<Props, State> {
   app: PIXI.Application
   container: PIXI.Container
   state: State
-  server: Server
   client: Client
 
   constructor (props: Props) {
@@ -35,9 +31,7 @@ class App extends Component<Props, State> {
       antialias: true
     })
     document.querySelector('#canvas-zone').appendChild(this.app.view)
-    this.server = new Server()
     this.client = new Client(this.app)
-    this.server.start()
   }
 
   render () {

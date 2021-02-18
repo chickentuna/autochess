@@ -4,7 +4,7 @@ import * as PIXI from 'pixi.js'
 import { Drawer, WHITE } from './xchess/Drawer'
 import { fitAspectRatio, inBounds, randint, shuffle, toLocal } from './utils'
 import palettes from 'nice-color-palettes'
-import * as io from './io'
+import io from '../socket'
 import { GlowFilter } from 'pixi-filters'
 
 function hexToRGB (col) {
@@ -13,7 +13,6 @@ function hexToRGB (col) {
 
 let palette = palettes[randint(0, 100)].map(hexToRGB)
 shuffle(palette)
-// console.log({ palette })
 palette = [
   13413525,
   7637891,
@@ -80,7 +79,7 @@ export class Client {
     this.stage = stage
     this.width = view.width
     this.height = view.height
-    this.phase = Phase.SHOP
+    this.phase = Phase.LOBBY
     this.pool = []
     this.hoveringOver = {}
 
@@ -106,10 +105,20 @@ export class Client {
       this.pool = data.pool
       this.board = data.board
 
+      this.shopRoom.visible = true
+
       this.redrawPool()
       this.updateHUD()
       this.redrawPieces()
     })
+
+    this.gold = 0
+    this.baseGold = 0
+    this.health = 0
+    this.tier = 0
+    this.pool = []
+    this.board = { pieces: [] }
+    io.emit('join', 'player')
   }
 
   // TODO: rename to initPieces

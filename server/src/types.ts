@@ -1,8 +1,5 @@
-export class Piece {
+export interface Piece {
   type: PieceType
-  constructor (type: PieceType) {
-    this.type = type
-  }
 }
 
 export enum PieceType {
@@ -12,4 +9,13 @@ export enum PieceType {
   CASTLE = 3,
   QUEEN = 4,
   KING = 5
+}
+
+export const PIECE_NAME = {
+  [PieceType.PAWN]: 'pawn',
+  [PieceType.BISHOP]: 'bishop',
+  [PieceType.KNIGHT]: 'knight',
+  [PieceType.CASTLE]: 'rook',
+  [PieceType.QUEEN]: 'queen',
+  [PieceType.KING]: 'king'
 }

@@ -32,15 +32,7 @@ interface Piece {
   place?: 'board' | 'shop'
 }
 
-export class Board {
-  pieces: Piece[]
-  constructor () {
-    this.pieces = []
-    for (let i = 0; i < BOARD_ROWS * BOARD_COLUMNS; ++i) {
-      this.pieces.push(null)
-    }
-  }
-}
+type Pieces = Piece[]
 
 type BoardCoord = {
   boardCoord?: PIXI.IPoint,
@@ -54,7 +46,7 @@ export class Client {
   baseGold: number
   health: number
   tier: number
-  board: Board
+  pieces: Pieces
 
   stage: PIXI.Container
   shopRoom: PIXI.Container
@@ -103,7 +95,7 @@ export class Client {
       this.health = data.health
       this.tier = data.tier
       this.pool = data.pool
-      this.board = data.board
+      this.pieces = data.pieces
 
       this.shopRoom.visible = true
 
@@ -117,7 +109,7 @@ export class Client {
     this.health = 0
     this.tier = 0
     this.pool = []
-    this.board = { pieces: [] }
+    this.pieces = []
     io.emit('join', 'player')
   }
 
@@ -127,13 +119,13 @@ export class Client {
     for (let y = 0; y < BOARD_ROWS; ++y) {
       for (let x = 0; x < BOARD_COLUMNS; ++x) {
         const idx = y * BOARD_ROWS + x
-        const piece = this.board.pieces[idx]
+        const piece = this.pieces[idx]
         if (piece != null) {
           const sprite = this.drawer.drawPiece(piece.type)
           this.boardContainer.addChild(sprite)
           sprite.position.set(this.drawer.cellSize * x, this.drawer.cellSize * y)
           const newPiece = this.initBoardPiece(piece, sprite)
-          this.board.pieces[idx] = newPiece
+          this.pieces[idx] = newPiece
         }
       }
     }
@@ -171,7 +163,7 @@ export class Client {
     if (this.gold < 3) {
       return false
     }
-    if (this.board.pieces.every(v => v != null)) {
+    if (this.pieces.every(v => v != null)) {
       return false
     }
     return true
@@ -231,7 +223,7 @@ export class Client {
   }
 
   refreshPieces () {
-    for (const piece of [...this.board.pieces, ...this.piecesInShop]) {
+    for (const piece of [...this.pieces, ...this.piecesInShop]) {
       if (piece != null) {
         this.refreshPiece(piece)
       }
@@ -336,7 +328,7 @@ export class Client {
     readyButton.position.set(7 * this.width / 8, this.height / 2)
     readyButton.endFill()
 
-    const readyLabel = new PIXI.Text('Start', {
+    const readyLabel = new PIXI.Text('Ready', {
       fill: palette[0],
       fontSize: 14,
       fontWeight: 'bold'
@@ -350,7 +342,7 @@ export class Client {
     readyButton.interactive = true
     readyButton.cursor = 'pointer'
     readyButton.on('mousedown', ev => {
-      io.emit('ready', this.board.pieces)
+      io.emit('ready', this.pieces.map(piece => piece == null ? null : { type: piece.type }))
     })
 
     shopRoom.on('mousedown', ev => {
@@ -360,15 +352,15 @@ export class Client {
         if (this.selectedPiece.place === 'shop') {
           pieceSprite = this.drawer.drawPiece(this.selectedPiece.type)
           this.boardContainer.addChild(pieceSprite)
-          this.board.pieces[boardIdx] = this.initBoardPiece({ type: this.selectedPiece.type }, pieceSprite)
+          this.pieces[boardIdx] = this.initBoardPiece({ type: this.selectedPiece.type }, pieceSprite)
           this.gold -= 3
           const shopIdx = this.piecesInShop.findIndex(v => v === this.selectedPiece)
           this.selectedPiece.sprite.parent.removeChild(this.selectedPiece.sprite)
           this.piecesInShop.splice(shopIdx, 1)
         } else {
-          const oldBoardIdx = this.board.pieces.findIndex(v => v === this.selectedPiece)
-          this.board.pieces[oldBoardIdx] = null
-          this.board.pieces[boardIdx] = this.selectedPiece
+          const oldBoardIdx = this.pieces.findIndex(v => v === this.selectedPiece)
+          this.pieces[oldBoardIdx] = null
+          this.pieces[boardIdx] = this.selectedPiece
           pieceSprite = this.selectedPiece.sprite
         }
         pieceSprite.position.set(boardCoord.x * this.drawer.cellSize, boardCoord.y * this.drawer.cellSize)
@@ -417,7 +409,7 @@ export class Client {
     const boardPos = toLocal(this.boardGraphics, point)
     const boardCoord = this.toBoardCoord(boardPos)
     const boardIdx = this.toBoardIdx(boardCoord)
-    if (inBounds(boardCoord, BOARD_COLUMNS, BOARD_ROWS) && this.selectedPiece != null && this.board.pieces[boardIdx] == null) {
+    if (inBounds(boardCoord, BOARD_COLUMNS, BOARD_ROWS) && this.selectedPiece != null && this.pieces[boardIdx] == null) {
       return {
         boardIdx,
         boardCoord

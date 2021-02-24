@@ -1,9 +1,9 @@
-import { Board } from './Board'
-import { PieceType } from './types'
+import { newBoard } from './Board'
+import { Piece, PieceType } from './types'
 
 export class Player {
   name: string
-  board: Board
+  pieces: Piece[]
   pool: PieceType[]
   tier: number
   maxGold: number
@@ -14,7 +14,7 @@ export class Player {
   constructor (name: string, socket: SocketIO.Socket) {
     this.name = name
     this.socket = socket
-    this.board = new Board()
+    this.pieces = newBoard()
     this.pool = []
     this.tier = 1
     this.maxGold = 3

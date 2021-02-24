@@ -1,8 +1,10 @@
 import { Phase } from './Phase'
 import { Player } from './Player'
-import { PieceType } from './types'
+import { Piece, PieceType, PIECE_NAME } from './types'
 import { randint, shuffle } from './utils'
 import log from './webapp/log'
+import ChessEngine from 'simple-chess-engine'
+import { BOARD_COLUMNS, BOARD_ROWS } from './Board'
 
 export const TIERS = 3
 export const POOL_COUNT = 3
@@ -44,10 +46,13 @@ export class Server {
         this.players = []
         log.debug('user disconnected', socket.handshake.address)
       })
-      socket.on('ready', (pieces) => {
+      socket.on('ready', (pieces:Piece[]) => {
         const player = this.playerMap[socket.id]
         player.board.pieces = pieces
         player.ready = true
+        if (this.players.every(p => p.ready)) {
+          this.startBattlePhase()
+        }
       })
       socket.on('join', (name: string) => {
         console.log(name)
@@ -67,17 +72,80 @@ export class Server {
     this.startShopPhase()
   }
 
+  startBattlePhase () {
+    this.phase = Phase.BATTLE
+    // Matchmake
+    const playerPool:Player[] = shuffle([...this.players])
+    if (playerPool.length % 2 === 1) {
+      const aPlayer = playerPool[0]
+      playerPool.push({ ...aPlayer, name: 'bot' })
+    }
+
+    for (let idx = 0; idx < playerPool.length; ++idx) {
+      const white = playerPool[idx]
+      const black = playerPool[idx + 1];
+
+      [white, black].forEach(player => {
+        player.socket.emit('battle_phase', {
+          white: { name: white.name, health: white.health, pieces: white.pieces },
+          black: { name: white.name, health: white.health, pieces: white.pieces }
+        })
+      })
+      this.performBattle(white, black)
+    }
+  }
+
+  initChessEngine (white, black) {
+    const game = new ChessEngine()
+    const content = {}
+
+    for (let idx = 0; idx < BOARD_COLUMNS * BOARD_ROWS; ++idx) {
+      white.pieces.forEach(piece => {
+        if (piece == null) {
+          return
+        }
+        const coordCol = 'ABCDEFGH'[idx % BOARD_COLUMNS]
+        const coordRow = idx < BOARD_COLUMNS ? 2 : 1
+        const coord = coordCol + coordRow
+        content[coord] = {
+          color: 'white', piece: PIECE_NAME[piece.type]
+        }
+      })
+    }
+    for (let idx = 0; idx < BOARD_COLUMNS * BOARD_ROWS; ++idx) {
+      black.pieces.forEach(piece => {
+        if (piece == null) {
+          return
+        }
+        const coordCol = 'ABCDEFGH'[idx % BOARD_COLUMNS]
+        const coordRow = idx < BOARD_COLUMNS ? 7 : 8
+        const coord = coordCol + coordRow
+        content[coord] = {
+          color: 'black', piece: PIECE_NAME[piece.type]
+        }
+      })
+    }
+
+    const opts = { firstPlayer: 'white' }
+    game.loadBoard(JSON.stringify(content), opts)
+    return game
+  }
+
+  performBattle (white:Player, black:Player) {
+    const game = this.initChessEngine(white, black)
+  }
+
   startShopPhase () {
     this.phase = Phase.SHOP
     this.refreshPools()
     for (const player of this.players) {
-      console.log('shop_phase')
+      log.debug('shop_phase')
       player.socket.emit('shop_phase', {
         gold: player.maxGold,
         health: player.health,
         tier: player.tier,
         pool: player.pool,
-        board: player.board
+        pieces: player.pieces
       })
     }
   }
@@ -85,12 +153,11 @@ export class Server {
   refreshPools () {
     for (let i = 0; i < TIERS; ++i) {
       shuffle(this.pool[i + 1])
-      let idx = 0
-      for (const player of this.players) {
-        // TODO: fix
-        player.pool = this.pool[i + 1].slice(idx, idx + POOL_COUNT)
-        idx++
-      }
+    }
+    let idx = 0
+    for (const player of this.players) {
+      player.pool = this.pool[player.tier].slice(idx, idx + POOL_COUNT)
+      idx++
     }
   }
 }

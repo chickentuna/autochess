@@ -9,6 +9,8 @@ export function newBoard (): Piece[] {
   for (let i = 0; i < BOARD_ROWS * BOARD_COLUMNS; ++i) {
     pieces.push(null)
   }
-  pieces[0] = { type: PieceType.KING }
+  pieces[0] = { type: PieceType.PAWN }
+  pieces[1] = { type: PieceType.KING }
+  pieces[2] = { type: PieceType.PAWN }
   return pieces
 }

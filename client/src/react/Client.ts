@@ -88,6 +88,8 @@ export class Client {
 
     this.initShopRoom()
 
+    io.on('reload', window.location.reload)
+
     io.on('shop_phase', (data) => {
       this.phase = Phase.SHOP
       this.gold = data.gold
@@ -118,7 +120,7 @@ export class Client {
     // this.boardContainer.removeChildren()
     for (let y = 0; y < BOARD_ROWS; ++y) {
       for (let x = 0; x < BOARD_COLUMNS; ++x) {
-        const idx = y * BOARD_ROWS + x
+        const idx = y * BOARD_COLUMNS + x
         const piece = this.pieces[idx]
         if (piece != null) {
           const sprite = this.drawer.drawPiece(piece.type)

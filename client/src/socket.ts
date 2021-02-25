@@ -9,6 +9,7 @@ socket.on('connect', (...args) => {
 
 socket.on('disconnect', () => {
   console.log('disconnect')
+  window.location.reload()
 })
 
 export default socket

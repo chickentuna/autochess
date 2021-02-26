@@ -47,3 +47,10 @@ export function inBounds (point:IPoint, x1:number, y1:number, x2?:number, y2?:nu
   }
   return point.x >= x1 && point.y >= y1 && point.x < x2 && point.y < y2
 }
+
+export const ALPHA = 'ABCDEFGH'
+
+export function coordToPosition (coord:string, cellSize: number) {
+  const letter = coord[0]
+  return new PIXI.Point(ALPHA.indexOf(letter) * cellSize, (parseInt(coord[1]) - 1) * cellSize)
+}

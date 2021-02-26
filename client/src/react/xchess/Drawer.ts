@@ -19,8 +19,6 @@ export const BLACK = 1
 
 type Colour = typeof BLACK | typeof WHITE
 
-export const ALPHA = 'abcdefgh'
-
 const CELL_SIZE = 60
 
 export interface Textures {
@@ -57,11 +55,6 @@ export class Drawer {
     const PIECES = sprites
 
     this.textures = { PIECES: PIECES as Record<Colour, Record<PieceType, PIXI.Texture>> }
-  }
-
-  coordToPosition (coord:string) {
-    const letter = coord[0]
-    return new PIXI.Point(ALPHA.indexOf(letter) * CELL_SIZE, (parseInt(coord[1]) - 1) * CELL_SIZE)
   }
 
   drawBoard (columns: number, rows: number) {

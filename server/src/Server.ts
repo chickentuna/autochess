@@ -96,7 +96,7 @@ export class Server {
       [white, black].forEach(player => {
         player.socket && player.socket.emit('battle_phase', {
           white: { name: white.name, health: white.health, pieces: white.pieces },
-          black: { name: white.name, health: white.health, pieces: white.pieces }
+          black: { name: black.name, health: black.health, pieces: black.pieces }
         })
       })
       this.performBattle(white, black)
@@ -106,12 +106,11 @@ export class Server {
   initChessEngine (white, black) {
     const game = new ChessEngine()
     const content = {}
-    for (let y = 0; y < 8; ++y) {
-      for (let x = 0; x < 8; ++x) {
-        const coord = 'ABCDEFGH'[x] + (y + 1)
-        // content[coord] = { piece: 'none', color: 'none' }
-      }
-    }
+    // for (let y = 0; y < 8; ++y) {
+    //   for (let x = 0; x < 8; ++x) {
+    //      const coord = 'ABCDEFGH'[x] + (y + 1)
+    //   }
+    // }
 
     white.pieces.forEach((piece, idx) => {
       if (piece == null) {

@@ -1,11 +1,12 @@
 import { Phase } from './Phase'
 import { PieceType } from './PieceType'
 import * as PIXI from 'pixi.js'
-import { Drawer, WHITE } from './xchess/Drawer'
-import { fitAspectRatio, inBounds, randint, shuffle, toLocal } from './utils'
+import { BLACK, COLOUR_DARK, Drawer, WHITE } from './xchess/Drawer'
+import { coordToPosition, fitAspectRatio, inBounds, randint, shuffle, toLocal } from './utils'
 import palettes from 'nice-color-palettes'
 import io from '../socket'
 import { GlowFilter } from 'pixi-filters'
+import { WIDTH } from './App'
 
 function hexToRGB (col) {
   return parseInt(col.slice(1), 16)
@@ -24,6 +25,22 @@ palette = [
 const BOARD_ROWS = 2
 const BOARD_COLUMNS = 8
 
+interface BattlePlayer {
+  name: string
+  health: number
+  pieces: Piece[]
+}
+
+type BattleAction = {
+  from: string
+  to: string
+}
+interface Battle {
+  white: BattlePlayer
+  black: BattlePlayer
+  queue?: BattleAction[]
+  pieces?: Record<string, PIXI.Sprite>
+}
 interface Piece {
   type: PieceType
   sprite?: PIXI.Sprite
@@ -47,10 +64,13 @@ export class Client {
   health: number
   tier: number
   pieces: Pieces
+  isAnimating: boolean
 
   stage: PIXI.Container
   shopRoom: PIXI.Container
   battleRoom: PIXI.Container
+  nameLabels: PIXI.Text[]
+  healthLabels: PIXI.Text[]
   shopContainer: PIXI.Container
   boardContainer: PIXI.Container
   boardGraphics: PIXI.Sprite
@@ -61,6 +81,8 @@ export class Client {
   glowFilter: GlowFilter
   selectedPiece: Piece
   hoveringOver: BoardCoord
+  battle: Battle
+  battlePieceContainer: PIXI.Container
 
   width: number
   height: number
@@ -87,6 +109,7 @@ export class Client {
     })
 
     this.initShopRoom()
+    this.initBattleRoom()
 
     io.on('reload', window.location.reload)
 
@@ -100,10 +123,31 @@ export class Client {
       this.pieces = data.pieces
 
       this.shopRoom.visible = true
+      this.battleRoom.visible = false
 
       this.redrawPool()
       this.updateHUD()
-      this.redrawPieces()
+      this.initShopPieces()
+    })
+
+    io.on('battle_phase', ({ white, black }) => {
+      this.battle = { white, black, queue: [] }
+
+      this.shopRoom.visible = false
+      this.battleRoom.visible = true
+
+      this.initBattlePieces()
+      this.nameLabels[0].text = white.name
+      this.nameLabels[1].text = black.name
+      this.healthLabels[0].text = `Health: ${white.health}`
+      this.healthLabels[1].text = `Health: ${black.health}`
+    })
+
+    io.on('move', (move) => {
+      this.battle.queue.push(move)
+      if (!this.isAnimating) {
+        this.animate(this.battle.queue.shift())
+      }
     })
 
     this.gold = 0
@@ -112,11 +156,46 @@ export class Client {
     this.tier = 0
     this.pool = []
     this.pieces = []
+    this.isAnimating = false
     io.emit('join', 'player')
   }
 
-  // TODO: rename to initPieces
-  redrawPieces () {
+  animate (move: BattleAction) {
+    this.isAnimating = true
+    const pieceToMove = this.battle.pieces[move.from]
+    const pieceToRemove = this.battle.pieces[move.to]
+    // this.app.anim
+  }
+
+  initBattlePieces () {
+    this.battle.pieces = {}
+    this.battle.white.pieces.forEach((piece, idx) => {
+      if (piece == null) { return }
+      const sprite = this.drawer.drawPiece(piece.type, WHITE)
+      const coordCol = 'ABCDEFGH'[idx % BOARD_COLUMNS]
+      const coordRow = idx < BOARD_COLUMNS ? 2 : 1
+      const coord = coordCol + coordRow
+      this.battle.pieces[coord] = sprite
+    })
+    this.battle.black.pieces.forEach((piece, idx) => {
+      if (piece == null) { return }
+      const sprite = this.drawer.drawPiece(piece.type, BLACK)
+      const coordCol = 'ABCDEFGH'[idx % BOARD_COLUMNS]
+      const coordRow = idx < BOARD_COLUMNS ? 7 : 8
+      const coord = coordCol + coordRow
+      this.battle.pieces[coord] = sprite
+    })
+
+    Object.entries(this.battle.pieces)
+      .forEach(([coord, piece]) => {
+        this.battlePieceContainer.addChild(piece)
+        const pos = coordToPosition(coord, this.drawer.cellSize)
+        piece.position.set(pos.x, pos.y)
+      })
+  }
+
+  // TODO: rename to initShopPieces
+  initShopPieces () {
     // this.boardContainer.removeChildren()
     for (let y = 0; y < BOARD_ROWS; ++y) {
       for (let x = 0; x < BOARD_COLUMNS; ++x) {
@@ -246,6 +325,56 @@ export class Client {
     this.battleRoom = new PIXI.Container()
     this.stage.addChild(this.battleRoom)
     this.battleRoom.visible = this.phase === Phase.BATTLE
+
+    const background = new PIXI.Sprite(PIXI.Texture.WHITE)
+    background.tint = palette[2]
+    background.width = this.width
+    background.height = this.height
+
+    const board = this.drawer.drawBoard(8, 8)
+    board.position.set(
+      this.width / 2 - board.width / 2,
+      this.height / 2 - board.height / 2
+    )
+
+    const pieceContainer = new PIXI.Container()
+    pieceContainer.position.copyFrom(board)
+    this.battlePieceContainer = pieceContainer
+
+    const labelContainer = new PIXI.Container()
+
+    const nameLabels = []
+    const healthLabels = []
+    for (let i = 0; i < 2; ++i) {
+      const nameLabel = new PIXI.Text(i === 0 ? 'White' : 'Black', {
+        fill: palette[0],
+        fontSize: 16,
+        fontWeight: 'bold'
+      })
+      const healthLabel = new PIXI.Text('Health: 0', {
+        fill: palette[0],
+        fontSize: 16,
+        fontWeight: 'bold'
+      })
+      healthLabel.y += 20
+
+      nameLabel.x = i * this.width
+      nameLabel.anchor.x = i
+      healthLabel.x = i * this.width
+      healthLabel.anchor.x = i
+
+      nameLabels.push(nameLabel)
+      healthLabels.push(healthLabel)
+      labelContainer.addChild(nameLabel)
+      labelContainer.addChild(healthLabel)
+    }
+    this.nameLabels = nameLabels
+    this.healthLabels = healthLabels
+
+    this.battleRoom.addChild(background)
+    this.battleRoom.addChild(board)
+    this.battleRoom.addChild(pieceContainer)
+    this.battleRoom.addChild(labelContainer)
   }
 
   initShopRoom () {

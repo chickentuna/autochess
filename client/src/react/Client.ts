@@ -1,8 +1,8 @@
 import { Phase } from './Phase'
 import { PieceType } from './PieceType'
 import * as PIXI from 'pixi.js'
-import { BLACK, COLOUR_DARK, Drawer, WHITE } from './xchess/Drawer'
-import { coordToPosition, fitAspectRatio, inBounds, randint, shuffle, toLocal } from './utils'
+import { BLACK, Drawer, WHITE } from './xchess/Drawer'
+import { coordToPosition, fitAspectRatio, inBounds, lerp, randint, shuffle, toLocal, unlerp } from './utils'
 import palettes from 'nice-color-palettes'
 import io from '../socket'
 import { GlowFilter } from 'pixi-filters'
@@ -24,6 +24,7 @@ palette = [
 
 const BOARD_ROWS = 2
 const BOARD_COLUMNS = 8
+const ACTION_DURATION = 500
 
 interface BattlePlayer {
   name: string
@@ -34,6 +35,7 @@ interface BattlePlayer {
 type BattleAction = {
   from: string
   to: string
+  progress?: number
 }
 interface Battle {
   white: BattlePlayer
@@ -64,7 +66,7 @@ export class Client {
   health: number
   tier: number
   pieces: Pieces
-  isAnimating: boolean
+  animating: BattleAction
 
   stage: PIXI.Container
   shopRoom: PIXI.Container
@@ -86,8 +88,13 @@ export class Client {
 
   width: number
   height: number
+  time: number
 
   drawer: Drawer
+
+  get isAnimating () {
+    return this.animating != null
+  }
 
   constructor ({ stage, renderer, view }: PIXI.Application) {
     this.stage = stage
@@ -145,7 +152,10 @@ export class Client {
 
     io.on('move', (move) => {
       this.battle.queue.push(move)
+      console.log('move')
       if (!this.isAnimating) {
+        console.log('start animation')
+        this.time = Date.now()
         this.animate(this.battle.queue.shift())
       }
     })
@@ -156,18 +166,58 @@ export class Client {
     this.tier = 0
     this.pool = []
     this.pieces = []
-    this.isAnimating = false
     io.emit('join', 'player')
   }
 
   animate (move: BattleAction) {
-    this.isAnimating = true
+    const delta = Date.now() - this.time
+    this.time = Date.now()
+
+    this.animating = move
+
+    move.progress = (move.progress || 0) + delta
+
     const pieceToMove = this.battle.pieces[move.from]
     const pieceToRemove = this.battle.pieces[move.to]
-    // this.app.anim
+
+    if (pieceToMove == null) {
+      this.animateEnd()
+
+      return
+    }
+
+    const posA = coordToPosition(move.from, this.drawer.cellSize)
+    const posB = coordToPosition(move.to, this.drawer.cellSize)
+    pieceToMove.position.set(
+      lerp(posA.x, posB.x, unlerp(0, ACTION_DURATION, move.progress)),
+      lerp(posA.y, posB.y, unlerp(0, ACTION_DURATION, move.progress))
+    )
+    if (move.progress >= ACTION_DURATION) {
+      delete this.battle.pieces[move.from]
+      this.battle.pieces[move.to] = pieceToMove
+      if (pieceToRemove != null) {
+        pieceToRemove.visible = false
+      }
+      console.log('end of animate')
+      this.animateEnd()
+    } else {
+      requestAnimationFrame(() => this.animate(move))
+    }
+  }
+
+  animateEnd () {
+    if (this.battle.queue.length > 0) {
+      console.log('starting next in queue')
+      requestAnimationFrame(() => this.animate(this.battle.queue.shift()))
+    } else {
+      this.animating = null
+      console.log('end of queue')
+      // TODO: game end?
+    }
   }
 
   initBattlePieces () {
+    // debugger
     this.battle.pieces = {}
     this.battle.white.pieces.forEach((piece, idx) => {
       if (piece == null) { return }

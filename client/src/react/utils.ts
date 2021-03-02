@@ -54,3 +54,11 @@ export function coordToPosition (coord:string, cellSize: number) {
   const letter = coord[0]
   return new PIXI.Point(ALPHA.indexOf(letter) * cellSize, (parseInt(coord[1]) - 1) * cellSize)
 }
+
+export function unlerp (a, b, v) {
+  return Math.min(1, Math.max(0, (v - a) / (b - a)))
+}
+
+export function lerp (a, b, u) {
+  return a + (b - a) * u
+}

@@ -12,10 +12,10 @@ export enum PieceType {
 }
 
 export const PIECE_NAME = {
-  [PieceType.PAWN]: 'pawn',
-  [PieceType.BISHOP]: 'bishop',
-  [PieceType.KNIGHT]: 'knight',
-  [PieceType.CASTLE]: 'rook',
-  [PieceType.QUEEN]: 'queen',
-  [PieceType.KING]: 'king'
+  [PieceType.PAWN]: 'p',
+  [PieceType.BISHOP]: 'b',
+  [PieceType.KNIGHT]: 'n',
+  [PieceType.CASTLE]: 'r',
+  [PieceType.QUEEN]: 'q',
+  [PieceType.KING]: 'k'
 }

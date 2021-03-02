@@ -16,8 +16,8 @@ export class Player {
     this.socket = socket
     this.pieces = newBoard()
     this.pool = []
-    this.tier = 1
-    this.maxGold = 3
+    this.tier = 2
+    this.maxGold = 300
     this.health = 30
     this.ready = false
   }

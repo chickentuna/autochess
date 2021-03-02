@@ -28,3 +28,14 @@ export function shuffle<T> (array: T[]): T[] {
   }
   return array
 }
+
+export function coordToBoardIndex (coord:string) {
+  const x = 'ABCDEFGH'.indexOf(coord[0])
+  const y = {
+    8: 1,
+    7: 0,
+    1: 1,
+    2: 0
+  }[coord[1]]
+  return y * 8 + x
+}

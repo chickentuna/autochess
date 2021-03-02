@@ -1,0 +1,26 @@
+{
+  "board": {
+    "configuration": {
+      "fullMove": 1,
+      "halfMove": 0,
+      "enPassant": null,
+      "isFinished": false,
+      "checkMate": false,
+      "check": false,
+      "turn": "black",
+      "pieces": {
+        "A1": "p",
+        "B1": "k",
+        "C1": "p"
+      },
+      "moves": {},
+      "castling": {
+        "whiteLong": true,
+        "whiteShort": true,
+        "blackLong": true,
+        "blackShort": true
+      }
+    },
+    "history": []
+  }
+}

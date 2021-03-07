@@ -10,7 +10,6 @@ export function newBoard (): Piece[] {
     pieces.push(null)
   }
   pieces[0] = { type: PieceType.PAWN }
-  pieces[1] = { type: PieceType.KING }
   pieces[2] = { type: PieceType.PAWN }
   return pieces
 }

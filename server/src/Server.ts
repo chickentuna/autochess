@@ -93,7 +93,11 @@ export class Server {
 
       socket.on('disconnect', () => {
         // this.players.splice(this.playerMap[socket])
+        for (const player of this.players) {
+          player.socket.emit('reload')
+        }
         this.players = []
+        this.playerMap = {}
         log.debug('user disconnected', socket.handshake.address)
       })
       socket.on('ready', (pieces:Piece[]) => {
@@ -102,20 +106,32 @@ export class Server {
           socket.emit('reload')
           return
         }
+        if (player.ready) {
+          console.log('ignoring a READY')
+          return
+        }
         player.pieces = pieces
         player.ready = true
-        if (this.players.every(p => p.ready)) {
+        if (this.players.length && this.players.every(p => p.ready)) {
+          console.log('start battle phase')
           this.startBattlePhase()
         }
       })
-      socket.on('join', (name: string) => {
-        const player = new Player(name, socket)
-        this.players.push(player)
-        this.playerMap[socket.id] = player
 
-        // TODO: a 'go' command, or use a countdown?
+      socket.on('go', () => {
         if (this.players.length >= 1) {
           this.start()
+        }
+      })
+
+      socket.on('join', (name: string) => {
+        if (this.phase === Phase.LOBBY) {
+          const player = new Player(name, socket)
+          this.players.push(player)
+          this.playerMap[socket.id] = player
+          for (const p of this.players) {
+            p.socket.emit('lobby', this.players.map(v => v.name))
+          }
         }
       })
     })
@@ -138,6 +154,37 @@ export class Server {
       const white = playerPool[idx]
       const black = playerPool[idx + 1]
       this.performBattle(white, black)
+    }
+
+    this.computeRanking(this.players)
+
+    for (const loser of this.players.filter(p => p.health <= 0)) {
+      loser.socket.emit('lose', {
+        rank: loser.rank
+      })
+    }
+
+    this.players = this.players.filter(p => p.health > 0)
+    if (this.players.length === 1) {
+      const winner = this.players[0]
+      winner.socket.emit('win', {
+        rank: winner.rank
+      })
+    } else {
+      this.startShopPhase()
+    }
+  }
+
+  computeRanking (players) {
+    players.sort((a, b) => b.health - a.health)
+    let rank = 1
+    let localRank = 1
+    for (var i = 0; i < players.length; i++) {
+      if (i > 0 && players[i].health < players[i - 1].health) {
+        localRank = rank
+      }
+      rank++
+      players[i].rank = localRank
     }
   }
 
@@ -227,13 +274,12 @@ export class Server {
       })
     })
 
-    let turn = 0
+    let turn: 'black'|'white' = 'white'
     let stopCounter = 2
 
     while (stopCounter > 0) {
       const board = game.board.configuration.pieces
-      const col = turn % 2 === 0 ? 'white' : 'black'
-      const pieces = Object.entries(board).filter(([pos, piece]) => this.isColor(piece, col))
+      const pieces = Object.entries(board).filter(([pos, piece]) => this.isColor(piece, turn))
       const moveMoves: ChessMove[] = []
       const attackMoves: ChessMove[] = []
 
@@ -241,9 +287,9 @@ export class Server {
         game.moves(pos).forEach(target => {
           const move = { from: pos, to: target }
           const takesPiece = board[move.to]
-          if (takesPiece && this.isAllowedMove(move.from, move.to, col)) {
+          if (takesPiece && this.isAllowedMove(move.from, move.to, turn)) {
             attackMoves.push(move)
-          } else if (this.isAllowedMove(move.from, move.to, col)) {
+          } else if (this.isAllowedMove(move.from, move.to, turn)) {
             moveMoves.push(move)
           }
         })
@@ -254,21 +300,32 @@ export class Server {
         this.doMove(game, move, white, black)
         stopCounter = 2
       } else {
-        stopCounter--
         log.debug('no moves')
+        stopCounter--
+        game.board.configuration.turn = turn === 'white' ? 'black' : 'white'
       }
-      turn++
+      turn = turn === 'white' ? 'black' : 'white'
     }
     [white, black].forEach(player => player.socket && player.socket.emit('game_end'))
 
-    const board = game.board.configuration.pieces
-    // const whitePiecesLeft = Object.entries(board).filter(([pos, piece]) => piece === 'white').length
-    // const blackPiecesLeft = Object.entries(board).filter(([pos, piece]) => piece === 'black').length
-    // white.health -= blackPiecesLeft
-    // black.health -= whitePiecesLeft
-    // TODO: this sucks because of check mate
-    // TODO:
-    // If checkmate, inflict damage equal to all your pieces, do not take damage, else inflict damage equal to all pieces that made it across
+    const whitePoints = this.countPiecesOnRow(game, 8, 'white')
+    const blackPoints = this.countPiecesOnRow(game, 1, 'black')
+
+    // const diff = whitePoints - blackPoints
+    // if (diff > 0) {
+    //   black.health -= diff
+    // } if (diff < 0) {
+    //   white.health += diff
+    // }
+    white.health -= blackPoints
+    black.health -= whitePoints
+  }
+
+  countPiecesOnRow (game:ChessGame, row:number, col:'white'|'black'):number {
+    return Object.entries(game.board.configuration.pieces)
+      .filter(([pos, piece]) => this.isColor(piece, col))
+      .filter(([pos, piece]) => parseInt(pos[1]) === row)
+      .length
   }
 
   malhaDistance (a:string, b:string) {
@@ -280,9 +337,6 @@ export class Server {
   isAllowedMove (pos:string, target:string, col:string) {
     return this.goingForwards(pos, target, col) && this.malhaDistance(pos, target) <= 2
   }
-  // isAllowedA (pos:string, target:string, col:string) {
-  //   return this.goingForwards(pos, target, col) && this.malhaDistance(pos, target) <= 2
-  // }
 
   startsAtEnd (from:string, color:string) {
     if (color === 'white') {
@@ -308,8 +362,9 @@ export class Server {
   startShopPhase () {
     this.phase = Phase.SHOP
     this.refreshPools()
+    log.debug('shop_phase')
     for (const player of this.players) {
-      log.debug('shop_phase')
+      player.ready = false
       player.socket.emit('shop_phase', {
         gold: player.maxGold,
         health: player.health,
@@ -326,6 +381,7 @@ export class Server {
     }
     let idx = 0
     for (const player of this.players) {
+      player.pool = []
       for (let pidx = 1; pidx <= player.tier; ++pidx) {
         player.pool = [...player.pool, ...this.pool[pidx].slice(idx, idx + POOL_COUNT + pidx)]
       }

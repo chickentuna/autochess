@@ -49,6 +49,7 @@ interface Piece {
   hover?: boolean
   selected?: boolean
   place?: 'board' | 'shop'
+  index?:number
 }
 
 type Pieces = Piece[]
@@ -67,15 +68,20 @@ export class Client {
   tier: number
   pieces: Pieces
   animating: BattleAction
+  nextShopPhaseData: any
+  name: string
+  playerNamesLabel: PIXI.Text
 
   stage: PIXI.Container
   shopRoom: PIXI.Container
   battleRoom: PIXI.Container
+  lobby: PIXI.Container
   nameLabels: PIXI.Text[]
   healthLabels: PIXI.Text[]
   shopContainer: PIXI.Container
   boardContainer: PIXI.Container
   boardGraphics: PIXI.Sprite
+  readyButton: PIXI.Graphics
   goldLabel: PIXI.Text
   tierLabel: PIXI.Text
   healthLabel: PIXI.Text
@@ -85,6 +91,7 @@ export class Client {
   hoveringOver: BoardCoord
   battle: Battle
   battlePieceContainer: PIXI.Container
+  rank?: number
 
   width: number
   height: number
@@ -96,13 +103,14 @@ export class Client {
     return this.animating != null
   }
 
-  constructor ({ stage, renderer, view }: PIXI.Application) {
+  constructor ({ stage, renderer, view }: PIXI.Application, name:string) {
     this.stage = stage
     this.width = view.width
     this.height = view.height
     this.phase = Phase.LOBBY
     this.pool = []
     this.hoveringOver = {}
+    this.name = name
 
     this.drawer = new Drawer(renderer)
 
@@ -115,26 +123,22 @@ export class Client {
       knockout: false
     })
 
+    this.initLobby()
     this.initShopRoom()
     this.initBattleRoom()
 
     io.on('reload', window.location.reload)
 
+    io.on('lobby', (playerNames) => {
+      this.playerNamesLabel.text = `Waiting for players\n${playerNames.join('\n')}`
+    })
+
     io.on('shop_phase', (data) => {
-      this.phase = Phase.SHOP
-      this.gold = data.gold
-      this.baseGold = data.gold
-      this.health = data.health
-      this.tier = data.tier
-      this.pool = data.pool
-      this.pieces = data.pieces
-
-      this.shopRoom.visible = true
-      this.battleRoom.visible = false
-
-      this.redrawPool()
-      this.updateHUD()
-      this.initShopPieces()
+      if (this.phase === Phase.BATTLE) {
+        this.nextShopPhaseData = data
+        return
+      }
+      this.initShopPhase(data)
     })
 
     io.on('battle_phase', ({ white, black }) => {
@@ -142,6 +146,7 @@ export class Client {
 
       this.shopRoom.visible = false
       this.battleRoom.visible = true
+      this.phase = Phase.BATTLE
 
       this.initBattlePieces()
       this.nameLabels[0].text = white.name
@@ -152,12 +157,17 @@ export class Client {
 
     io.on('move', (move) => {
       this.battle.queue.push(move)
-      console.log('move')
       if (!this.isAnimating) {
-        console.log('start animation')
         this.time = Date.now()
         this.animate(this.battle.queue.shift())
       }
+    })
+
+    io.on('lose', ({ rank }) => {
+      this.rank = rank
+    })
+    io.on('win', ({ rank }) => {
+      this.rank = rank
     })
 
     this.gold = 0
@@ -166,7 +176,28 @@ export class Client {
     this.tier = 0
     this.pool = []
     this.pieces = []
-    io.emit('join', 'player')
+    io.emit('join', this.name)
+  }
+
+  initShopPhase (data) {
+    this.phase = Phase.SHOP
+    this.gold = data.gold
+    this.baseGold = data.gold
+    this.health = data.health
+    this.tier = data.tier
+    this.pool = data.pool
+    this.pieces = data.pieces
+
+    this.shopRoom.visible = true
+    this.battleRoom.visible = false
+
+    this.boardContainer.removeChildren()
+    this.piecesInShop = []
+    this.readyButton.visible = true
+
+    this.redrawPool()
+    this.updateHUD()
+    this.initShopPieces()
   }
 
   animate (move: BattleAction) {
@@ -198,7 +229,6 @@ export class Client {
       if (pieceToRemove != null) {
         pieceToRemove.visible = false
       }
-      console.log('end of animate')
       this.animateEnd()
     } else {
       requestAnimationFrame(() => this.animate(move))
@@ -207,17 +237,26 @@ export class Client {
 
   animateEnd () {
     if (this.battle.queue.length > 0) {
-      console.log('starting next in queue')
       requestAnimationFrame(() => this.animate(this.battle.queue.shift()))
     } else {
       this.animating = null
-      console.log('end of queue')
-      // TODO: game end?
+      setTimeout(() => {
+        if (this.nextShopPhaseData) {
+          if (this.phase === Phase.BATTLE) {
+            this.initShopPhase(this.nextShopPhaseData)
+            this.nextShopPhaseData = null
+          }
+        } else if (this.rank != null) {
+          window.alert('Game Over. Rank: ' + this.rank)
+          this.phase = Phase.LOBBY
+          this.battleRoom.visible = false
+        }
+      }, 2000)
     }
   }
 
   initBattlePieces () {
-    // debugger
+    this.battlePieceContainer.removeChildren()
     this.battle.pieces = {}
     this.battle.white.pieces.forEach((piece, idx) => {
       if (piece == null) { return }
@@ -244,7 +283,6 @@ export class Client {
       })
   }
 
-  // TODO: rename to initShopPieces
   initShopPieces () {
     // this.boardContainer.removeChildren()
     for (let y = 0; y < BOARD_ROWS; ++y) {
@@ -274,11 +312,18 @@ export class Client {
     let i = 0
 
     this.piecesInShop = []
+
+    const shopZoneWidth = 3 * this.width / 4
+
     for (const pieceType of this.pool) {
+      const n = this.pool.length
+      const sep = shopZoneWidth / (n + 1)
+
       const sprite = this.drawer.drawPiece(pieceType)
       allPieces.addChild(sprite)
-      sprite.x = i * this.drawer.cellSize
-      const piece = this.initShopPiece(pieceType, sprite)
+
+      sprite.x = i * sep
+      const piece = this.initShopPiece(pieceType, sprite, i)
       this.piecesInShop.push(piece)
       i++
     }
@@ -300,8 +345,8 @@ export class Client {
     return true
   }
 
-  initShopPiece (pieceType: PieceType, sprite: PIXI.Sprite):Piece {
-    const piece:Piece = { type: pieceType, sprite, place: 'shop' }
+  initShopPiece (pieceType: PieceType, sprite: PIXI.Sprite, index: number):Piece {
+    const piece:Piece = { type: pieceType, sprite, place: 'shop', index }
 
     piece.sprite.interactive = true
     piece.sprite.on('mouseover', () => {
@@ -369,6 +414,50 @@ export class Client {
     piece.sprite.filters = piece.hover && selectable ? [this.glowFilter] : []
     piece.sprite.alpha = selected ? 0.5 : 1
     piece.sprite.cursor = (selectable || selected) ? 'pointer' : 'default'
+  }
+
+  initLobby () {
+    const lobby = new PIXI.Text('Waiting for players', {
+      fill: palette[0],
+      fontSize: 16,
+      fontWeight: 'bold',
+      textAlign: 'justify'
+    })
+    lobby.x = this.width / 2
+    lobby.y = this.height / 2
+
+    lobby.anchor.set(0.5)
+
+    this.playerNamesLabel = lobby
+
+    const frameWidth = 8
+    const goButton = new PIXI.Graphics()
+    goButton.beginFill(palette[3], 1)
+    goButton.lineStyle(frameWidth / 2, palette[0], 1)
+    goButton.drawRoundedRect(0, 0, this.width / 8 - frameWidth, this.height / 16, frameWidth / 2)
+    goButton.position.set(this.width / 8, this.height / 2)
+    goButton.endFill()
+
+    const goLabel = new PIXI.Text('Start', {
+      fill: palette[0],
+      fontSize: 14,
+      fontWeight: 'bold'
+    })
+    goLabel.anchor.set(0.5)
+    goLabel.position.set(
+      goButton.x + goButton.width / 2 - frameWidth / 4,
+      goButton.y + goButton.height / 2 - frameWidth / 4
+    )
+
+    goButton.interactive = true
+    goButton.cursor = 'pointer'
+    goButton.on('mousedown', ev => {
+      io.emit('go')
+    })
+
+    this.stage.addChild(lobby)
+    this.stage.addChild(goButton)
+    this.stage.addChild(goLabel)
   }
 
   initBattleRoom () {
@@ -524,7 +613,9 @@ export class Client {
     readyButton.cursor = 'pointer'
     readyButton.on('mousedown', ev => {
       io.emit('ready', this.pieces.map(piece => piece == null ? null : { type: piece.type }))
+      readyButton.visible = false
     })
+    this.readyButton = readyButton
 
     shopRoom.on('mousedown', ev => {
       const { boardCoord, boardIdx } = this.hoveringOver
@@ -535,9 +626,12 @@ export class Client {
           this.boardContainer.addChild(pieceSprite)
           this.pieces[boardIdx] = this.initBoardPiece({ type: this.selectedPiece.type }, pieceSprite)
           this.gold -= 3
-          const shopIdx = this.piecesInShop.findIndex(v => v === this.selectedPiece)
-          this.selectedPiece.sprite.parent.removeChild(this.selectedPiece.sprite)
-          this.piecesInShop.splice(shopIdx, 1)
+
+          // const shopIdx = this.piecesInShop.findIndex(v => v === this.selectedPiece)
+          // this.selectedPiece.sprite.parent.removeChild(this.selectedPiece.sprite)
+          // this.piecesInShop.splice(shopIdx, 1)
+          this.pool.splice(this.selectedPiece.index, 1)
+          this.redrawPool()
         } else {
           const oldBoardIdx = this.pieces.findIndex(v => v === this.selectedPiece)
           this.pieces[oldBoardIdx] = null

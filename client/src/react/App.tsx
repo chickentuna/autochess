@@ -4,6 +4,8 @@ import * as PIXI from 'pixi.js'
 import { Client } from './Client'
 
 interface State {
+  name: string
+  started: boolean
 }
 interface Props {
 
@@ -21,17 +23,36 @@ class App extends Component<Props, State> {
   constructor (props: Props) {
     super(props)
     this.state = {
+      name: 'Player',
+      started: false
     }
   }
 
-  componentDidMount () {
+  startGame () {
     this.app = new PIXI.Application({
       width: WIDTH,
       height: HEIGHT,
       antialias: true
     })
     document.querySelector('#canvas-zone').appendChild(this.app.view)
-    this.client = new Client(this.app)
+    this.client = new Client(this.app, this.state.name)
+  }
+
+  componentDidMount () {
+
+  }
+
+  onNameChange (e) {
+    this.setState({
+      name: e.target.value
+    })
+  }
+
+  go () {
+    this.setState({
+      started: true
+    })
+    this.startGame()
   }
 
   render () {
@@ -46,6 +67,14 @@ class App extends Component<Props, State> {
           <div id='controls' />
 
         </div>
+        {this.state.started ? (
+          <></>
+        ) : (
+          <div className='lobby'>
+            <label htmlFor='name'>Name: <input value={this.state.name} id='name' onChange={(e) => this.onNameChange(e)} /></label>
+            <button onClick={() => this.go()}> GO</button>
+          </div>
+        )}
       </div>
     )
   }
